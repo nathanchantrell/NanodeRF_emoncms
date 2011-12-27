@@ -1,0 +1,9 @@
+//------------------------------------------------------------------------------------------------------------------------
+// Nanode to emoncms
+// By Nathan Chantrell. http://zorg.org/
+// Receives date from multiple emonTX and temperature sensor modules and uploads to an emoncms server
+// Based on emonbase multiple emontx example for ethershield by Trystan Lea and Glyn Hudson at OpenEnergyMonitor.org
+// Licenced under GNU GPL V3
+//------------------------------------------------------------------------------------------------------------------------
+
+All the required libraries are linked to in code comments.
