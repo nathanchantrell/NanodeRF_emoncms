@@ -11,14 +11,14 @@
 #include <NanodeMAC.h> // https://github.com/thiseldo/NanodeMAC
 
 // Fixed RF12 settings
-#define MYNODE 35            // node ID 30 reserved for base station
+#define MYNODE 30            // node ID 30 reserved for base station
 #define freq RF12_433MHZ     // frequency
 #define group 210            // network group 
 
 // emoncms settings
-#define SERVER  "my.server"; // emoncms server
-#define EMONCMS "emoncms"    // location of emoncms on server, blank if at root
-#define APIKEY  "xxxxxxxxx"  // API write key 
+#define SERVER  "tardis.chantrell.net";            // emoncms server
+#define EMONCMS "emoncms"                          // location of emoncms on server, blank if at root
+#define APIKEY  "b872449aa3ba74458383a798b740a378" // API write key 
 
 // #define DEBUG 
 
@@ -31,6 +31,15 @@ typedef struct
   int supplyV;              // emontx voltage
 } Payload;
 Payload emontx; 
+
+//########################################################################################################################
+//Data Structure to be sent
+//########################################################################################################################
+typedef struct
+{
+  int hour, mins, sec;  // time
+} PayloadOut;
+PayloadOut nanode; 
 
 //########################################################################################################################
 // The PacketBuffer class is used to generate the json string that is send via ethernet - JeeLabs
@@ -55,6 +64,7 @@ PacketBuffer str;
   byte Ethernet::buffer[700];
   uint32_t timer;
   Stash stash;
+  char line_buf[50];                       // Used to store line of http reply header
 
 // Set mac address using NanodeMAC
   static uint8_t mymac[6] = { 0,0,0,0,0,0 };
@@ -158,16 +168,81 @@ void setup () {
     Serial.print("Sending to emoncms: ");
     Serial.println(str.buf);
    #endif
-  
-   Stash::prepare(PSTR("GET http://$F/$F/api/post?apikey=$F&json=$S HTTP/1.0" "\r\n"
-                        "Host: $F" "\r\n"
-                        "User-Agent: NanodeRF" "\r\n"
-                        "\r\n"),
-            website, PSTR(EMONCMS), PSTR(APIKEY), str.buf, website);
 
-   ether.tcpSend();     // send the packet
+   ether.browseUrl(PSTR("/"EMONCMS"/api/post?apikey="APIKEY"&json="), str.buf, website, my_callback);
+
    dataReady = 0;
   }
-  
+
 }
+
+//########################################################################################################################
+// Ethernet callback recieve reply and decode (OpenEnergyMonitor)
+//########################################################################################################################
+
+static void my_callback (byte status, word off, word len) {
+  
+  get_header_line(2,off);      // Get the date and time from the header
+  
+  #ifdef DEBUG  
+  Serial.print("Date and Time: ");    // Print out the date and time
+  Serial.println(line_buf);    // Print out the date and time
+  #endif
+  
+  // Decode date time string to get integers for hour, min, sec, day
+  // We just search for the characters and hope they are in the right place
+  char val[1];
+  val[0] = line_buf[23]; val[1] = line_buf[24];
+  int hour = atoi(val);
+  val[0] = line_buf[26]; val[1] = line_buf[27];
+  int mins = atoi(val);
+  val[0] = line_buf[29]; val[1] = line_buf[30];
+  int sec = atoi(val);
+  val[0] = line_buf[11]; val[1] = line_buf[12];
+  int day = atoi(val);
+
+  nanode.hour = hour;
+  nanode.mins = mins;
+  nanode.sec = sec;
+  
+  delay(100);
+  
+  // Send time data
+  int i = 0; while (!rf12_canSend() && i<10) {rf12_recvDone(); i++;}    // if can send - exit if it gets stuck, as it seems too
+  rf12_sendStart(0, &nanode, sizeof nanode);                        // send payload
+  rf12_sendWait(0);
+
+  #ifdef DEBUG  
+  Serial.println("time sent");
+  #endif
+}
+
+// decode reply
+int get_header_line(int line,word off)
+{
+  memset(line_buf,NULL,sizeof(line_buf));
+  if (off != 0)
+  {
+    uint16_t pos = off;
+    int line_num = 0;
+    int line_pos = 0;
+    
+    while (Ethernet::buffer[pos])
+    {
+      if (Ethernet::buffer[pos]=='\n')
+      {
+        line_num++; line_buf[line_pos] = '\0';
+        line_pos = 0;
+        if (line_num == line) return 1;
+      }
+      else
+      {
+        if (line_pos<49) {line_buf[line_pos] = Ethernet::buffer[pos]; line_pos++;}
+      }  
+      pos++; 
+    } 
+  }
+  return 0;
+}
+
 
